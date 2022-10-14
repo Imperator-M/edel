@@ -57,7 +57,7 @@ struct userInput *normalParse(char cmd[CMDLINE_MAX]){
             newUserCommand->arguments[newUserCommand->index] = individualString;
             newUserCommand->index++;
         }
-            /// the other strings are the arguments
+        /// the other strings are the arguments
         else{
             newUserCommand->arguments[newUserCommand->index] = individualString;
             newUserCommand->index++;
@@ -128,6 +128,7 @@ int checkIfFileExist(char* redirectionFile){
 }
 
 void forkRedirection(struct userInput* newUserCommand, char cmd[CMDLINE_MAX], int redirection){
+    int inputRedirectionError = 0;
     pid_t pid;
     pid = fork();
 
@@ -135,7 +136,16 @@ void forkRedirection(struct userInput* newUserCommand, char cmd[CMDLINE_MAX], in
     if(pid != 0){
         int status;
         waitpid(pid, &status, 0);
-        fprintf(stderr, "+ completed '%s' [%d]\n", cmd, WEXITSTATUS(status));
+        ///could not open file
+        if(inputRedirectionError == 1 && WEXITSTATUS(status)){
+            fprintf(stderr, "Error: cannot open input file\n");
+        }
+        if(WEXITSTATUS(status) == 1){
+            fprintf(stderr, "Error: cannot open input file\n");
+        }else{
+            fprintf(stderr, "+ completed '%s' [%d]\n", cmd, WEXITSTATUS(status));
+        }
+
     }
     else{
         if(redirection == OUTPUT){
@@ -152,6 +162,11 @@ void forkRedirection(struct userInput* newUserCommand, char cmd[CMDLINE_MAX], in
         }
         else if(redirection == INPUT){
             int fd2;
+            
+            if(checkIfFileExist(newUserCommand->redirectionFile) == 0){
+                inputRedirectionError = 1;
+                exit(EXIT_FAILURE);
+            }
 
             fd2 = open(newUserCommand->redirectionFile, O_RDONLY);
             dup2(fd2, STDIN_FILENO);
@@ -201,11 +216,6 @@ void forkProcessRedirection(char originalInput[CMDLINE_MAX], char cmd[CMDLINE_MA
 
         parse2(newUserCommand, part2Process);
 
-        /// if file exist but dont have permission to write to it
-        if(checkIfFileExist(newUserCommand->redirectionFile) == 1 && chmod(newUserCommand->redirectionFile, W_OK) == -1){
-            fprintf(stderr, "Error: cannot open output file\n");
-            return;
-        }
         forkRedirection(newUserCommand, cmd, redirection);
     }
     else if(redirection == INPUT){
@@ -240,12 +250,6 @@ void forkProcessRedirection(char originalInput[CMDLINE_MAX], char cmd[CMDLINE_MA
         parse1(newUserCommand, part1Process);
 
         parse2(newUserCommand, part2Process);
-
-        /// meaning file does not exist
-        if(checkIfFileExist(newUserCommand->redirectionFile) == 0){
-            fprintf(stderr, "Error: cannot open input file\n");
-            return;
-        }
 
         forkRedirection(newUserCommand, cmd, redirection);
     }
@@ -310,10 +314,7 @@ void forkIntoPipe(char cmd[CMDLINE_MAX], struct userInput* process1, struct user
     pid_t pid;
     pid_t pid2;
     /// set up pipe
-    if (pipe(fd) == -1)
-    {
-	   fprintf(stderr, "Error: pipe error \n");
-    }
+    pipe(fd);
     pid = fork();
 
 
@@ -378,7 +379,7 @@ void forkIntoPipe(char cmd[CMDLINE_MAX], struct userInput* process1, struct user
     if(WEXITSTATUS(status2) == 1){
         fprintf(stderr, "Error: mislocated output redirection\n");
     }
-        /// otherwise return the completed message and executed pipe
+    /// otherwise return the completed message and executed pipe
     else{
         fprintf(stderr, "+ completed '%s' [%d] [%d]\n", cmd, WEXITSTATUS(status1), WEXITSTATUS(status2));
     }
@@ -491,8 +492,8 @@ void onePipingCommand(char cmd[CMDLINE_MAX]){
         fprintf(stderr, "Error: mislocated input redirection\n");
         return;
     }
-        /// otherwise do a normal parse and set the command and arguments
-        /// of process2
+    /// otherwise do a normal parse and set the command and arguments
+    /// of process2
     else{
         parse1(process2, part2Process);
     }
@@ -501,18 +502,16 @@ void onePipingCommand(char cmd[CMDLINE_MAX]){
 }
 
 void forkIntoTwoPipes(char cmd[CMDLINE_MAX], struct userInput* process1, struct userInput* process2,
-                      struct userInput* process3, int process1Redirection, int process2Redirection,
-                      int process3Redirection){
+        struct userInput* process3, int process1Redirection, int process2Redirection,
+                int process3Redirection){
     
     int tester = process2Redirection;
     tester += 1;
 
     int fd[2];
     int fd2[2];
-    if ((pipe(fd) == -1) || (pipe(fd2) == -1))
-    {
-        fprintf(stderr, "Error: pipe error \n");
-    }
+    pipe(fd);
+    pipe(fd2);
 
     pid_t pid;
     pid = fork();
@@ -672,10 +671,9 @@ void forkIntoThreePipes(char cmd[CMDLINE_MAX], struct userInput* process1, struc
     int fd[2];
     int fd2[2];
     int fd3[2];
-    if ((pipe(fd) == -1) || (pipe(fd2) == -1) || (pipe(fd3) == -1))
-    {
-        fprintf(stderr, "Error: pipe error \n");
-    }
+    pipe(fd);
+    pipe(fd2);
+    pipe(fd3);
 
     pid_t pid;
     pid = fork();
@@ -851,7 +849,7 @@ void threePiping(char cmd[CMDLINE_MAX]){
         fprintf(stderr, "Error: mislocated input redirection\n");
         return;
     }
-        //parse1(process2, part2Process);
+    //parse1(process2, part2Process);
     else if(process3Redirection == OUTPUT){
         fprintf(stderr, "Error: mislocated output redirection\n");
         return;
@@ -863,7 +861,7 @@ void threePiping(char cmd[CMDLINE_MAX]){
         fprintf(stderr, "Error: mislocated input redirection\n");
         return;
     }
-        //parse1(process3, part3Process);
+    //parse1(process3, part3Process);
     else if(process4Redirection == OUTPUT){
         parseRedirectionForPipe(process4, part4Process);
     }
@@ -971,34 +969,28 @@ struct node
 //initialize top to NULL as is standard of pointers
 struct node *top = NULL; 
 
-int push(char *cwd){
-    //Declare character array and a pointer new_top to hold the current
+void push(){
+    //Declare character array and a character new_top to hold the current
     //directory from getcwd. Then allocate memory for
     //Then use strcpy to store the new_top to the array in our stack
     //using getcwd so we create a copy of the cmd to be used instead
-    int status = 0;
-    //char cwd[CMDLINE_MAX];
-    //char *cwd2;
+    char cwd[CMDLINE_MAX];
+    char *cwd2;
     struct node *new_top;
     new_top = (struct node*)malloc(sizeof(struct node));
 
-    //cwd2 = getcwd(cwd, CMDLINE_MAX);
-    strcpy(new_top -> data, cwd);
-    
+    cwd2 = getcwd(cwd, CMDLINE_MAX);
+    strcpy(new_top -> data, cwd2);
+
     //if top == NULL then first item in stack, set next to null
     //else set top of stack to new item and set new_top back to top
-    if(new_top == NULL){
-	printf("Overflow");
-	status = 1;
-    }
     if(top == NULL){
         new_top -> next = NULL;
-    }
+        }
     else{
         new_top -> next = top;
-    }
+        }
     top = new_top;
-    return (status);
 }
 
 int pop(){
@@ -1019,11 +1011,7 @@ int pop(){
         strncpy(item, top -> data, CMDLINE_MAX);
         top = top -> next;
         free(remove_item);
-
-	    if (chdir(item) != 0){
-		    fprintf(stderr, "Error: cannot cd into directory\n");
-            status = 1;
-	    }
+        chdir(item);
     }
     return (status);
 }
@@ -1055,37 +1043,28 @@ void runCd(char cmd[CMDLINE_MAX]) {
     int status = 0;
 
     char cwd[CMDLINE_MAX];
-    if (getcwd(cwd, sizeof(cwd)) == NULL) //gets current directory
-    {
-	perror("getcwd() error");
-    }
+    getcwd(cwd, sizeof(cwd)); //gets current directory
     struct userInput *newUserCommand = normalParse(cmd);
 
     //If the users first command is cd then run cd command
     //look at the second argument to decide command.
     //if neither "." or ".." then check if its a valid command
     if (!strcmp(newUserCommand->command, "cd")){
-	    if (!strcmp(newUserCommand->arguments[1], ".")){
-                if (chdir(cwd) != 0){
-			        fprintf(stderr, "Error: cannot cd into directory\n");
-           		    status = 1;
-                }
+        if (chdir(newUserCommand->arguments[1]) != 0){
+            fprintf(stderr, "Error: cannot cd into directory\n");
+            status = 1;
+        }
+        else{
+            if (!strcmp(newUserCommand->arguments[1], ".")){
+                chdir(cwd);
             }
             else if (!strcmp(newUserCommand->arguments[1], ".."))
             {
-                //chdir(cwd);
-                if (chdir("..") !=0){
-			        fprintf(stderr, "Error: cannot cd into directory\n");
-            		status = 1;
-		        }
+                chdir(cwd);
+                chdir("..");
             }
-	    else{
-		    if (chdir(newUserCommand->arguments[1]) != 0){
-			    fprintf(stderr, "Error: cannot cd into directory\n");
-            	status = 1;
-		    }	
-	    }
-    }	    
+        }
+    }
         //If not cd check if its a stack command. If pushd, then error check
         //and activate push and then change directory as the user has inputed.
         //checking for valid command changes directory, so i set it back to
@@ -1093,16 +1072,18 @@ void runCd(char cmd[CMDLINE_MAX]) {
     else{
         if (!strcmp(newUserCommand->command, "dirs")){
             printf("%s\n",cwd);
-        	status = dirs();
+            status = dirs();
         }
         else if (!strcmp(newUserCommand->command, "pushd")){
             if (chdir(newUserCommand->arguments[1]) != 0){
                 fprintf(stderr, "Error: no such directory\n");
-            	status = 1;
-		    }
-		    else{
-                status = push(cwd);
-           	}
+                status = 1;
+            }
+            else{
+                chdir(cwd);
+                push();
+                chdir(newUserCommand->arguments[1]);
+            }
         }
         else if (!strcmp(newUserCommand->command, "popd")){
             status = pop();
@@ -1130,10 +1111,7 @@ int main(void){
         /// 2. n = the maximum numbers to be read
         /// 3. FILE* stream = in this case identify where the string is read from which is from stdin
         /// aka the user input
-        if (fgets(cmd, CMDLINE_MAX, stdin) == NULL)
-	{
-		perror("fgets() failure\n");
-	}
+        fgets(cmd, CMDLINE_MAX, stdin);
 
         /* Print command line if stdin is not provided by terminal */
         if (!isatty(STDIN_FILENO)) {
@@ -1217,10 +1195,7 @@ int main(void){
             }
         }
         else if (!strcmp(cmd3, "pwd")){
-            if (getcwd(cmd3, sizeof(cmd3)) == NULL){ //gets current directory
-                perror("getcwd() error");
-            }
-
+            getcwd(cmd3, sizeof(cmd3));
             printf("%s\n", cmd3);
             fprintf(stderr, "+ completed '%s' [0]\n", newCmd->command);
 
